@@ -1,1 +1,102 @@
 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PulmoAI - COVID-19 & Pneumonia Detector</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🫁 PulmoAI Detector</h1>
+            <p>Upload a Chest X-Ray image for instant COVID-19 & Pneumonia screening.</p>
+        </header>
+
+        <main class="card">
+            <form id="upload-form" enctype="multipart/form-data">
+                <div class="drop-zone" id="drop-zone">
+                    <span class="drop-zone__prompt">Drag & Drop Chest X-Ray file here or click to browse</span>
+                    <input type="file" name="file" id="file-input" class="drop-zone__input" accept="image/*" required>
+                </div>
+                
+                <div id="image-preview" class="image-preview hidden">
+                    <img src="" alt="Uploaded X-Ray" id="preview-img">
+                </div>
+
+                <button type="submit" class="btn" id="predict-btn">Analyze X-Ray</button>
+            </form>
+
+            <div id="loading" class="loading hidden">
+                <div class="spinner"></div>
+                <p>Analyzing X-Ray scan with CNN model...</p>
+            </div>
+
+            <div id="result-card" class="result-card hidden">
+                <h2>Diagnostic Result</h2>
+                <div class="result-details">
+                    <p><strong>Prediction:</strong> <span id="res-prediction">-</span></p>
+                    <p><strong>Confidence:</strong> <span id="res-confidence">-</span></p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const fileInput = document.getElementById('file-input');
+        const dropZone = document.getElementById('drop-zone');
+        const previewImg = document.getElementById('preview-img');
+        const imagePreview = document.getElementById('image-preview');
+        const uploadForm = document.getElementById('upload-form');
+        const predictBtn = document.getElementById('predict-btn');
+        const loading = document.getElementById('loading');
+        const resultCard = document.getElementById('result-card');
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(evt) {
+                    previewImg.src = evt.target.result;
+                    imagePreview.classList.remove('hidden');
+                }
+                reader.readAsDataURL(file);
+            }
+        });
+
+        uploadForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (!fileInput.files[0]) return;
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            loading.classList.remove('hidden');
+            resultCard.classList.add('hidden');
+            predictBtn.disabled = true;
+
+            try {
+                const response = await fetch('/predict', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+
+                if (response.ok) {
+                    document.getElementById('res-prediction').textContent = data.prediction;
+                    document.getElementById('res-confidence').textContent = data.confidence;
+                    resultCard.classList.remove('hidden');
+                } else {
+                    alert(data.error || 'Prediction failed');
+                }
+            } catch (err) {
+                alert('An error occurred during processing.');
+            } finally {
+                loading.classList.add('hidden');
+                predictBtn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>
