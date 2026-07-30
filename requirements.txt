@@ -1,5 +1,4 @@
 Flask
-tensorflow==2.15.0
-numpy<2.0.0
+tensorflow==2.16.1
 Pillow
 gunicorn
