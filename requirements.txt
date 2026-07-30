@@ -1,6 +1,5 @@
-
-tensorflow
-flask
-numpy
-pillow
-matplotlib
+Flask
+   tensorflow
+   numpy
+   Pillow
+   gunicorn
