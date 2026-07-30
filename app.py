@@ -13,7 +13,8 @@ app = Flask(__name__)
 
 # Load the trained CNN model
 MODEL_PATH = 'model.h5'
-model = load_model(MODEL_PATH)
+
+model = load_model(MODEL_PATH, compile=False)
 
 # Define target classes matching Day 2 training
 CLASS_NAMES = ['COVID19', 'NORMAL', 'PNEUMONIA']
