@@ -1,72 +1,82 @@
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 os.environ['OMP_NUM_THREADS'] = '1'
-os.environ['TF_NUM_INTRAOP_THREADS'] = '1'
-os.environ['TF_NUM_INTEROP_THREADS'] = '1'
-import numpy as np
+
 from flask import Flask, request, render_template, jsonify
-from tensorflow.keras.models import load_model
-from tensorflow.keras.preprocessing import image
+from werkzeug.utils import secure_filename
 from PIL import Image
+import numpy as np
+import tensorflow as tf
+from tensorflow.keras.models import load_model
+import tensorflow.keras.layers as layers
+
+# --- Keras Compatibility Patch (Strip unknown config tags) ---
+orig_dense_init = layers.Dense.__init__
+def new_dense_init(self, *args, **kwargs):
+    kwargs.pop('quantization_config', None)
+    orig_dense_init(self, *args, **kwargs)
+layers.Dense.__init__ = new_dense_init
+
+orig_input_init = layers.InputLayer.__init__
+def new_input_init(self, *args, **kwargs):
+    kwargs.pop('optional', None)
+    if 'batch_shape' in kwargs:
+        bs = kwargs.pop('batch_shape')
+        if bs and 'input_shape' not in kwargs and 'batch_input_shape' not in kwargs:
+            kwargs['batch_input_shape'] = bs
+    orig_input_init(self, *args, **kwargs)
+layers.InputLayer.__init__ = new_input_init
+# -----------------------------------------------------------
 
 app = Flask(__name__)
+UPLOAD_FOLDER = 'uploads'
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-# Load the trained CNN model
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
+
 MODEL_PATH = 'model.h5'
-
 model = load_model(MODEL_PATH, compile=False)
 
-# Define target classes matching Day 2 training
-CLASS_NAMES = ['COVID19', 'NORMAL', 'PNEUMONIA']
-
-def model_predict(img_path, model):
-    # Load and preprocess image to 224x224 RGB
-    img = image.load_img(img_path, target_size=(224, 224))
-    img_array = image.img_to_array(img)
+def prepare_image(img_path):
+    img = Image.open(img_path).convert('RGB')
+    img = img.resize((224, 224))
+    img_array = np.array(img) / 255.0
     img_array = np.expand_dims(img_array, axis=0)
-    img_array /= 255.0  # Rescale matching ImageDataGenerator
+    return img_array
 
-    # Predict
-    preds = model.predict(img_array)
-    pred_class_index = np.argmax(preds[0])
-    confidence = float(np.max(preds[0]) * 100)
-    
-    result = CLASS_NAMES[pred_class_index]
-    return result, round(confidence, 2)
-
-@app.route('/', methods=['GET'])
+@app.route('/')
 def index():
-    # Render main webpage
     return render_template('index.html')
 
 @app.route('/predict', methods=['POST'])
-def upload():
+def predict():
     if 'file' not in request.files:
         return jsonify({'error': 'No file uploaded'}), 400
     
-    f = request.files['file']
-    if f.filename == '':
-        return jsonify({'error': 'No file selected'}), 400
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No selected file'}), 400
 
-    # Save uploaded file temporarily
-    basepath = os.path.dirname(__file__)
-    uploads_dir = os.path.join(basepath, 'uploads')
-    os.makedirs(uploads_dir, exist_ok=True)
-    
-    file_path = os.path.join(uploads_dir, f.filename)
-    f.save(file_path)
+    if file:
+        filename = secure_filename(file.filename)
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(filepath)
 
-    # Perform prediction
-    result, confidence = model_predict(file_path, model)
+        img_bytes = prepare_image(filepath)
+        preds = model.predict(img_bytes)
 
-    # Clean up saved file
-    if os.path.exists(file_path):
-        os.remove(file_path)
+        classes = ['COVID-19', 'Normal', 'Pneumonia']
+        pred_idx = np.argmax(preds[0])
+        confidence = float(np.max(preds[0])) * 100
 
-    return jsonify({
-        'prediction': result,
-        'confidence': f"{confidence}%"
-    })
+        if os.path.exists(filepath):
+            os.remove(filepath)
+
+        return jsonify({
+            'prediction': classes[pred_idx],
+            'confidence': f"{confidence:.2f}%"
+        })
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
