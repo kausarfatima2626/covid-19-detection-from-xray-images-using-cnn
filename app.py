@@ -10,15 +10,25 @@ import tensorflow as tf
 from tensorflow.keras.models import load_model
 import tensorflow.keras.layers as layers
 
-# --- Keras 3 -> Keras 2 Complete Compatibility Patch ---
+# --- Keras 3 to Keras 2 Complete Bridge Patch ---
 class DTypePolicy:
     def __init__(self, name='float32', **kwargs):
-        self.name = name
+        if isinstance(name, dict):
+            self.name = name.get('name', 'float32')
+        else:
+            self.name = str(name)
+
     @classmethod
     def from_config(cls, config):
         if isinstance(config, dict):
-            return config.get('name', 'float32')
-        return config
+            return cls(name=config.get('name', 'float32'))
+        return cls(name=str(config))
+
+    def __str__(self):
+        return self.name
+
+    def __repr__(self):
+        return f"<DTypePolicy '{self.name}'>"
 
 orig_layer_init = layers.Layer.__init__
 def patched_layer_init(self, *args, **kwargs):
@@ -36,7 +46,7 @@ def patched_input_init(self, *args, **kwargs):
             kwargs['batch_input_shape'] = bs
     orig_input_init(self, *args, **kwargs)
 layers.InputLayer.__init__ = patched_input_init
-# -------------------------------------------------------
+# ------------------------------------------------
 
 app = Flask(__name__)
 UPLOAD_FOLDER = 'uploads'
