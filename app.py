@@ -10,23 +10,33 @@ import tensorflow as tf
 from tensorflow.keras.models import load_model
 import tensorflow.keras.layers as layers
 
-# --- Keras Compatibility Patch (Strip unknown config tags) ---
-orig_dense_init = layers.Dense.__init__
-def new_dense_init(self, *args, **kwargs):
+# --- Keras 3 -> Keras 2 Complete Compatibility Patch ---
+class DTypePolicy:
+    def __init__(self, name='float32', **kwargs):
+        self.name = name
+    @classmethod
+    def from_config(cls, config):
+        if isinstance(config, dict):
+            return config.get('name', 'float32')
+        return config
+
+orig_layer_init = layers.Layer.__init__
+def patched_layer_init(self, *args, **kwargs):
     kwargs.pop('quantization_config', None)
-    orig_dense_init(self, *args, **kwargs)
-layers.Dense.__init__ = new_dense_init
+    kwargs.pop('optional', None)
+    orig_layer_init(self, *args, **kwargs)
+layers.Layer.__init__ = patched_layer_init
 
 orig_input_init = layers.InputLayer.__init__
-def new_input_init(self, *args, **kwargs):
+def patched_input_init(self, *args, **kwargs):
     kwargs.pop('optional', None)
     if 'batch_shape' in kwargs:
         bs = kwargs.pop('batch_shape')
         if bs and 'input_shape' not in kwargs and 'batch_input_shape' not in kwargs:
             kwargs['batch_input_shape'] = bs
     orig_input_init(self, *args, **kwargs)
-layers.InputLayer.__init__ = new_input_init
-# -----------------------------------------------------------
+layers.InputLayer.__init__ = patched_input_init
+# -------------------------------------------------------
 
 app = Flask(__name__)
 UPLOAD_FOLDER = 'uploads'
@@ -36,7 +46,11 @@ if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 
 MODEL_PATH = 'model.h5'
-model = load_model(MODEL_PATH, compile=False)
+model = load_model(
+    MODEL_PATH, 
+    compile=False, 
+    custom_objects={'DTypePolicy': DTypePolicy}
+)
 
 def prepare_image(img_path):
     img = Image.open(img_path).convert('RGB')
