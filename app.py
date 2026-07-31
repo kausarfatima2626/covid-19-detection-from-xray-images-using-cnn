@@ -1,14 +1,12 @@
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 os.environ['OMP_NUM_THREADS'] = '1'
-os.environ['TF_NUM_INTRAOP_THREADS'] = '1'
-os.environ['TF_NUM_INTEROP_THREADS'] = '1'
 
 from flask import Flask, request, render_template, jsonify
 from werkzeug.utils import secure_filename
 from PIL import Image
 import numpy as np
-import tensorflow as tf
+import tf_keras as keras
 
 app = Flask(__name__)
 UPLOAD_FOLDER = 'uploads'
@@ -18,7 +16,8 @@ if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 MODEL_PATH = 'model.h5'
-model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+# Using Google's official tf_keras legacy engine to seamlessly load .h5 models
+model = keras.models.load_model(MODEL_PATH, compile=False)
 
 def prepare_image(img_path):
     img = Image.open(img_path).convert('RGB')
