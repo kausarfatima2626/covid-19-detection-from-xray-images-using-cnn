@@ -1,4 +1,5 @@
 Flask
-tensorflow-cpu==2.16.1
-Pillow
-gunicorn
+   tensorflow-cpu==2.16.1
+   tf-keras==2.16.0
+   Pillow
+   gunicorn
