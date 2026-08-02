@@ -1,5 +1,8 @@
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+os.environ['OMP_NUM_THREADS'] = '1'
+os.environ['TF_NUM_INTRAOP_THREADS'] = '1'
+os.environ['TF_NUM_INTEROP_THREADS'] = '1'
 
 import json
 import shutil
@@ -9,6 +12,13 @@ from PIL import Image
 from flask import Flask, request, render_template, jsonify
 from werkzeug.utils import secure_filename
 import tensorflow as tf
+
+# Limit TensorFlow CPU threads to prevent memory spiking on Render Free Tier
+try:
+    tf.config.threading.set_intra_op_parallelism_threads(1)
+    tf.config.threading.set_inter_op_parallelism_threads(1)
+except Exception:
+    pass
 
 class DTypePolicy:
     def __init__(self, name='float32', **kwargs):
@@ -50,13 +60,11 @@ def sanitize_h5_config(src_path, dst_path):
 
                 def clean_obj(obj):
                     if isinstance(obj, dict):
-                        # Convert DTypePolicy dict to simple string
                         if obj.get('class_name') == 'DTypePolicy':
                             return obj.get('config', {}).get('name', 'float32')
                         
                         new_dict = {}
                         for k, v in obj.items():
-                            # Remove incompatible Keras 3 keys
                             if k in ('quantization_config', 'optional'):
                                 continue
                             if k == 'batch_shape':
@@ -72,7 +80,6 @@ def sanitize_h5_config(src_path, dst_path):
 
                 cleaned_config = clean_obj(config)
                 
-                # Write back sanitized JSON string to HDF5 metadata
                 if isinstance(f.attrs['model_config'], bytes):
                     f.attrs['model_config'] = json.dumps(cleaned_config).encode('utf-8')
                 else:
@@ -107,7 +114,7 @@ except Exception as e:
 def prepare_image(img_path):
     img = Image.open(img_path).convert('RGB')
     img = img.resize((224, 224))
-    img_array = np.array(img) / 255.0
+    img_array = np.array(img, dtype=np.float32) / 255.0
     img_array = np.expand_dims(img_array, axis=0)
     return img_array
 
@@ -135,7 +142,10 @@ def predict():
 
     try:
         img_bytes = prepare_image(filepath)
-        preds = model.predict(img_bytes)
+        
+        # High-performance direct call execution (bypasses heavy model.predict pipeline)
+        raw_preds = model(img_bytes, training=False)
+        preds = raw_preds.numpy() if hasattr(raw_preds, 'numpy') else raw_preds
 
         classes = ['COVID-19', 'Normal', 'Pneumonia']
         pred_idx = int(np.argmax(preds[0]))
@@ -146,6 +156,7 @@ def predict():
             'confidence': f"{confidence:.2f}%"
         })
     except Exception as e:
+        print(f"Prediction Error: {str(e)}")
         return jsonify({'error': f'Prediction execution error: {str(e)}'}), 500
     finally:
         if os.path.exists(filepath):
